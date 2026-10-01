@@ -1,0 +1,7 @@
+* text=auto
+
+# Bash scripts break with Windows line endings, whatever the clone's settings.
+*.sh text eol=lf
+hooks/* text eol=lf
+
+*.png binary

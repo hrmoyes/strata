@@ -1,0 +1,8 @@
+Strata
+Copyright 2026 Hayden Moyes
+
+Portions of template/STRATA.md are adapted from CONTEXT.md in
+chasmlol/2010-rust-rewrite-mashup
+(https://github.com/chasmlol/2010-rust-rewrite-mashup), licensed under the
+Apache License, Version 2.0. The adapted text has been modified: generalised
+for use in any project, restructured, and extended.

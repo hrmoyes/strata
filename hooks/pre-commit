@@ -1,0 +1,69 @@
+#!/usr/bin/env bash
+# strata: keep strata/context/ out of commits, except what the mode allows.
+#
+# local mode (default): nothing under strata/context/ may be committed.
+# shared mode: only strata/context/artifacts/ may be committed, and those
+# files must not contain common key or token formats.
+#
+# The mode comes from the managed block in .gitignore. .gitignore keeps
+# strata/context/ out of normal adds; this is the second wall, because
+# `git add -f` walks through the first.
+set -euo pipefail
+
+ROOT="$(git rev-parse --show-toplevel)"
+CTX=strata/context
+mode=local
+if grep -q 'strata:begin (mode: shared)' "$ROOT/.gitignore" 2>/dev/null; then
+  mode=shared
+fi
+
+blocked=()
+artifacts=()
+while IFS= read -r rel; do
+  [[ -n "$rel" ]] || continue
+  if [[ "$mode" == shared && "$rel" == "$CTX"/artifacts/* ]]; then
+    artifacts+=("$rel")
+  else
+    blocked+=("$rel")
+  fi
+done < <(git diff --cached --name-only --diff-filter=ACMR -- "$CTX/" || true)
+
+if ((${#blocked[@]} > 0)); then
+  {
+    if [[ "$mode" == local ]]; then
+      echo "pre-commit: $CTX/ is working memory, not the product (mode: local). Do not git add it (not even -f)."
+    else
+      echo "pre-commit: only $CTX/artifacts/ is committed (mode: shared). Evidence, externals and scratch stay local."
+    fi
+    echo 'The files stay on disk. Unstage with:'
+    echo '  git restore --staged -- <path>'
+    echo 'Staged paths:'
+    printf '  %s\n' "${blocked[@]}"
+    if [[ "$mode" == local && -n "$(git ls-files -- "$CTX/")" ]]; then
+      echo
+      echo "git still tracks files under $CTX/ (left over from shared mode). Stop tracking them;"
+      echo 'the files stay on disk:'
+      echo "  git rm -r --cached $CTX/ && git commit -m \"Stop tracking agent artifacts\""
+    fi
+  } >&2
+  exit 1
+fi
+
+# Shared artifacts leave the machine: refuse obvious secrets. A backstop, not a review.
+secret_re='-----BEGIN [A-Z ]*PRIVATE KEY-----|AKIA[0-9A-Z]{16}|gh[pousr]_[A-Za-z0-9]{36}|github_pat_[A-Za-z0-9_]{20,}|sk-[A-Za-z0-9_-]{20,}|xox[baprs]-[A-Za-z0-9-]{10,}|AIza[0-9A-Za-z_-]{35}'
+hits=()
+for rel in ${artifacts[@]+"${artifacts[@]}"}; do
+  if git show ":$rel" 2>/dev/null | grep -Eq -- "$secret_re"; then
+    hits+=("$rel")
+  fi
+done
+if ((${#hits[@]} > 0)); then
+  {
+    echo 'pre-commit: these artifact files look like they contain a key or token (mode: shared).'
+    echo 'Artifacts are pushed with the code. Remove the value, describe it instead, and restage.'
+    printf '  %s\n' "${hits[@]}"
+  } >&2
+  exit 1
+fi
+
+exit 0
